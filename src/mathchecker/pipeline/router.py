@@ -240,7 +240,7 @@ class LearnedSpecialistRouter:
 
     def _load_local_router_config(self) -> None:
         path_obj = Path(self.config.model_path)
-        config_path = path_obj / "pedcot_router_config.json"
+        config_path = path_obj / "mathchecker_router_config.json"
         if not path_obj.exists() or not config_path.exists():
             return
         try:

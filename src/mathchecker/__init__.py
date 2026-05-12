@@ -1,4 +1,4 @@
-"""PedCoT reproduction package."""
+"""MathChecker reproduction package."""
 
 from .core.models import TraceExample, TracePrediction
 

@@ -1,4 +1,4 @@
-# PedCoT 当前算法完整流程说明
+# MathChecker 当前算法完整流程说明
 
 本文档说明当前项目中已经实现的完整算法流程，重点覆盖以下内容：
 
@@ -494,7 +494,7 @@ Qwen/Qwen3-0.6B
 
 - router checkpoint
 - tokenizer
-- `pedcot_router_config.json`
+- `mathchecker_router_config.json`
 
 如果开启：
 
@@ -511,7 +511,7 @@ Qwen/Qwen3-0.6B
 训练好 router 后，可以在推理时这样接入：
 
 ```bash
-uv run pedcot run \
+uv run mathchecker run \
   --dataset big-bench-mistake \
   --model <your-llm-model> \
   --stage2-tools triad \
@@ -768,7 +768,7 @@ reasonable-but-incomplete
   - `route ablation`
   - per-label threshold search
 - `expected-gain` 标注不只提升已执行 action，也会显式编码未执行 action 的 missed opportunity
-- learned router 现在还能从 `pedcot_router_config.json` 读取 `per_label_thresholds`，使离线校准结果可以直接反馈回推理链路。
+- learned router 现在还能从 `mathchecker_router_config.json` 读取 `per_label_thresholds`，使离线校准结果可以直接反馈回推理链路。
 
 ## 12. 一句话总结
 

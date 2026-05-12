@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from pedcot.core.constants import DATASET_BIG_BENCH_MISTAKE
-from pedcot.core.models import TraceExample
-from pedcot.data.stores import StageCacheStore
-from pedcot.pipeline.predictor import PedCoTPredictor
-from pedcot.pipeline.router import build_route_decision_from_scores
-from pedcot.pipeline.router_dataset import build_router_export_row
-from pedcot.pipeline.router_eval import (
+from mathchecker.core.constants import DATASET_BIG_BENCH_MISTAKE
+from mathchecker.core.models import TraceExample
+from mathchecker.data.stores import StageCacheStore
+from mathchecker.pipeline.predictor import PedCoTPredictor
+from mathchecker.pipeline.router import build_route_decision_from_scores
+from mathchecker.pipeline.router_dataset import build_router_export_row
+from mathchecker.pipeline.router_eval import (
     build_route_ablation_summary,
     calibrate_per_label_thresholds,
     evaluate_router_predictions,

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PedCoT 项目解读</title>
+  <title>MathChecker 项目解读</title>
   <style>
     :root {
       --bg: #f4ede1;
@@ -534,7 +534,7 @@
     <header class="hero">
       <div class="hero-grid">
         <div>
-          <div class="eyebrow">PedCoT / Project Reading</div>
+          <div class="eyebrow">MathChecker / Project Reading</div>
           <h1>它不是判答案对错，而是找出推理链里第一处错。</h1>
           <p>
             这个项目的核心任务是：给定一道数学题和模型生成的
@@ -597,7 +597,7 @@
           <div class="panel big-statement">
             <strong>定位首错，而不是只判终局。</strong>
             <p>
-              PedCoT 的目标是判断一个多步解题过程里，
+              MathChecker 的目标是判断一个多步解题过程里，
               <span class="highlight">哪一步第一次出现了真正的数学冲突</span>。
               这类冲突可能来自算术错误、非法等价变形、错误代换、条件遗漏，
               或者把尚未证明的分支当成最终结论。
@@ -821,7 +821,7 @@
 
       <section class="quote-card">
         <blockquote>
-          PedCoT 的核心方法可以概括成一句话：
+          MathChecker 的核心方法可以概括成一句话：
           <span class="highlight">用分阶段判断缩小问题，用 specialist 工具提供硬证据，用 learned router 让“该调谁”这件事也可学习。</span>
         </blockquote>
         <p>
@@ -901,12 +901,12 @@
         <div class="sources-grid">
           <div class="source-pill"><code>README.md</code><br>项目总览与定位</div>
           <div class="source-pill"><code>LEARNED_ROUTER_ALGORITHM.md</code><br>完整算法流程说明</div>
-          <div class="source-pill"><code>src/pedcot/pipeline/predictor.py</code><br>主推理链路与 review 逻辑</div>
-          <div class="source-pill"><code>src/pedcot/pipeline/router.py</code><br>learned router 定义</div>
+          <div class="source-pill"><code>src/mathchecker/pipeline/predictor.py</code><br>主推理链路与 review 逻辑</div>
+          <div class="source-pill"><code>src/mathchecker/pipeline/router.py</code><br>learned router 定义</div>
         </div>
         <p class="footer-note">
-          补充参考还包括 <code>src/pedcot/pipeline/step_classifier.py</code>、
-          <code>src/pedcot/pipeline/router_dataset.py</code>、
+          补充参考还包括 <code>src/mathchecker/pipeline/step_classifier.py</code>、
+          <code>src/mathchecker/pipeline/router_dataset.py</code>、
           <code>scripts/train_learned_router.py</code>。如果你愿意，我也可以继续把这页改成
           “更偏论文风格” 或 “更偏产品介绍风格” 的版本。
         </p>

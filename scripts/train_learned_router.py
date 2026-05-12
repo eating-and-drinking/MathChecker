@@ -9,9 +9,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from pedcot.data.jsonl import read_jsonl
-from pedcot.pipeline.router import ROUTER_LABELS, RouterContext, format_router_input_text
-from pedcot.utils import ensure_parent_dir
+from mathchecker.data.jsonl import read_jsonl
+from mathchecker.pipeline.router import ROUTER_LABELS, RouterContext, format_router_input_text
+from mathchecker.utils import ensure_parent_dir
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -340,7 +340,7 @@ def main() -> int:
         "uses_lora": not args.disable_lora,
         "target_field": args.target_field,
     }
-    (args.output_dir / "pedcot_router_config.json").write_text(
+    (args.output_dir / "mathchecker_router_config.json").write_text(
         json.dumps(router_config, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
@@ -356,7 +356,7 @@ def main() -> int:
         merged_model = model.merge_and_unload()
         merged_model.save_pretrained(str(merged_dir))
         tokenizer.save_pretrained(str(merged_dir))
-        (merged_dir / "pedcot_router_config.json").write_text(
+        (merged_dir / "mathchecker_router_config.json").write_text(
             json.dumps(router_config, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )

@@ -43,15 +43,15 @@
 
 ### 影响文件
 
-- `src/pedcot/pipeline/templates/stage2.txt`
+- `src/mathchecker/pipeline/templates/stage2.txt`
 
 ### 验证方式
 
 可以在相同模型、相同数据集下，对修改前后分别运行：
 
 ```bash
-uv run pedcot run --dataset big-bench-mistake --model <your-model>
-uv run pedcot evaluate --dataset big-bench-mistake --model <your-model>
+uv run mathchecker run --dataset big-bench-mistake --model <your-model>
+uv run mathchecker evaluate --dataset big-bench-mistake --model <your-model>
 ```
 
 重点观察：
@@ -192,16 +192,16 @@ uv run pedcot evaluate --dataset big-bench-mistake --model <your-model>
 
 ### 影响文件
 
-- `src/pedcot/pipeline/step_classifier.py`
-- `src/pedcot/pipeline/router.py`
-- `src/pedcot/pipeline/router_dataset.py`
-- `src/pedcot/pipeline/tools.py`
-- `src/pedcot/pipeline/predictor.py`
-- `src/pedcot/pipeline/prompts.py`
-- `src/pedcot/pipeline/__init__.py`
-- `src/pedcot/core/models.py`
-- `src/pedcot/core/constants.py`
-- `src/pedcot/llm/openai_client.py`
+- `src/mathchecker/pipeline/step_classifier.py`
+- `src/mathchecker/pipeline/router.py`
+- `src/mathchecker/pipeline/router_dataset.py`
+- `src/mathchecker/pipeline/tools.py`
+- `src/mathchecker/pipeline/predictor.py`
+- `src/mathchecker/pipeline/prompts.py`
+- `src/mathchecker/pipeline/__init__.py`
+- `src/mathchecker/core/models.py`
+- `src/mathchecker/core/constants.py`
+- `src/mathchecker/llm/openai_client.py`
 - `scripts/export_router_dataset.py`
 - `scripts/train_learned_router.py`
 - `pyproject.toml`
@@ -214,7 +214,7 @@ uv run pedcot evaluate --dataset big-bench-mistake --model <your-model>
 
 ```bash
 uv run pytest
-uv run pedcot --help
+uv run mathchecker --help
 python3 scripts/export_router_dataset.py --help
 python3 scripts/train_learned_router.py --help
 ```
@@ -222,12 +222,12 @@ python3 scripts/train_learned_router.py --help
 再在真实数据集上比较改动前后：
 
 ```bash
-uv run pedcot run --dataset big-bench-mistake --model <your-model> --stage2-tools triad
-uv run pedcot evaluate --dataset big-bench-mistake --model <your-model>
+uv run mathchecker run --dataset big-bench-mistake --model <your-model> --stage2-tools triad
+uv run mathchecker evaluate --dataset big-bench-mistake --model <your-model>
 python3 scripts/export_router_dataset.py --dataset big-bench-mistake --model <your-model> --export-path <router-train.jsonl>
 uv sync --group router
 python3 scripts/train_learned_router.py --train-jsonl <router-train.jsonl> --output-dir <router-checkpoint-dir>
-uv run pedcot run --dataset big-bench-mistake --model <your-model> --stage2-tools triad --stage2-router learned-hybrid --stage2-router-model <router-checkpoint-dir>
+uv run mathchecker run --dataset big-bench-mistake --model <your-model> --stage2-tools triad --stage2-router learned-hybrid --stage2-router-model <router-checkpoint-dir>
 ```
 
 重点观察：
@@ -318,7 +318,7 @@ uv run pedcot run --dataset big-bench-mistake --model <your-model> --stage2-tool
   - per-label threshold search
 - 对 learned router 推理实现做了两项增强：
   - 新增 `score()` 接口，显式暴露 raw label score，便于离线评测和校准
-  - 支持从 `pedcot_router_config.json` 读取 `per_label_thresholds`
+  - 支持从 `mathchecker_router_config.json` 读取 `per_label_thresholds`
 - 这意味着现在可以先离线做 threshold calibration，再把结果回写到模型配置中，用于真实推理。
 
 ### 预期收益
@@ -341,10 +341,10 @@ uv run pedcot run --dataset big-bench-mistake --model <your-model> --stage2-tool
 
 ### 影响文件
 
-- `src/pedcot/pipeline/router.py`
-- `src/pedcot/pipeline/router_dataset.py`
-- `src/pedcot/pipeline/router_eval.py`
-- `src/pedcot/pipeline/predictor.py`
+- `src/mathchecker/pipeline/router.py`
+- `src/mathchecker/pipeline/router_dataset.py`
+- `src/mathchecker/pipeline/router_eval.py`
+- `src/mathchecker/pipeline/predictor.py`
 - `scripts/export_router_dataset.py`
 - `scripts/train_learned_router.py`
 - `scripts/evaluate_router.py`
@@ -442,8 +442,8 @@ python3 scripts/evaluate_router.py --data-jsonl artifacts/router/train.jsonl --m
 
 ### 影响文件
 
-- `src/pedcot/pipeline/router_dataset.py`
-- `src/pedcot/pipeline/router_eval.py`
+- `src/mathchecker/pipeline/router_dataset.py`
+- `src/mathchecker/pipeline/router_eval.py`
 - `scripts/export_router_dataset.py`
 - `scripts/train_learned_router.py`
 - `scripts/evaluate_router.py`

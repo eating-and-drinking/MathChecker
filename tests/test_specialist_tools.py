@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from pedcot.core.models import Stage2Parse
-from pedcot.pipeline.predictor import PedCoTPredictor
-from pedcot.pipeline.tools import (
+from mathchecker.core.models import Stage2Parse
+from mathchecker.pipeline.predictor import PedCoTPredictor
+from mathchecker.pipeline.tools import (
     alternative_route_verifier_tool,
     condition_obligation_verifier_tool,
     equivalence_substitution_verifier_tool,

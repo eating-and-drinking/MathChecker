@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import pytest
 
-from pedcot.cli import main
-from pedcot.pipeline.parsers import parse_stage2_response
-from pedcot.pipeline.prompts import PedCoTPromptBuilder
+from mathchecker.cli import main
+from mathchecker.pipeline.parsers import parse_stage2_response
+from mathchecker.pipeline.prompts import PedCoTPromptBuilder
 
 
 def test_cli_help_exits_zero() -> None:

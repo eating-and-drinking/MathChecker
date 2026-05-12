@@ -48,7 +48,7 @@ class OpenAIResponsesClient:
         if self._resolved_config is not None:
             return self._resolved_config
 
-        provider = os.getenv("PEDCOT_PROVIDER", "").strip().lower()
+        provider = os.getenv("MATHCHECKER_PROVIDER", "").strip().lower()
         if provider:
             defaults = self._provider_defaults(provider)
             if provider == "volcengine":
@@ -99,9 +99,9 @@ class OpenAIResponsesClient:
             if provider and provider != "generic":
                 if provider == "volcengine":
                     raise RuntimeError(
-                        "VOLCENGINE_API_KEY or ARK_API_KEY is not set for PEDCOT_PROVIDER=volcengine."
+                        "VOLCENGINE_API_KEY or ARK_API_KEY is not set for MATHCHECKER_PROVIDER=volcengine."
                     )
-                raise RuntimeError(f"{provider.upper()}_API_KEY is not set for PEDCOT_PROVIDER={provider}.")
+                raise RuntimeError(f"{provider.upper()}_API_KEY is not set for MATHCHECKER_PROVIDER={provider}.")
             raise RuntimeError("OPENAI_API_KEY is not set.")
         if self._client is not None:
             return self._client

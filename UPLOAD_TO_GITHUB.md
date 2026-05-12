@@ -1,6 +1,6 @@
 # 将本项目上传到 GitHub（WSL 版）
 
-本文档面向当前这个项目目录：`/mnt/f/pedcot`，并假设你正在 **WSL** 里操作。
+本文档面向当前这个项目目录：`/mnt/f/mathchecker`，并假设你正在 **WSL** 里操作。
 
 目标是把本地项目一步一步上传到 GitHub。
 
@@ -20,7 +20,7 @@
 先进入你的项目目录：
 
 ```bash
-cd /mnt/f/pedcot
+cd /mnt/f/mathchecker
 ```
 
 确认当前位置没错：
@@ -36,7 +36,7 @@ ls
 - `pyproject.toml`
 - `src/`
 - `tests/`
-- `pedcot_overview.html`
+- `mathchecker_overview.html`
 
 ---
 
@@ -128,7 +128,7 @@ git status
 这意味着：
 
 - 代码会上传
-- `pedcot_overview.html` 会上传
+- `mathchecker_overview.html` 会上传
 - 虚拟环境不会上传
 - 数据集目录 `data/` 不会上传
 - 结果目录 `artifacts/` 不会上传
@@ -180,7 +180,7 @@ git commit -m "Initial commit"
 1. 登录 GitHub
 2. 点击右上角 `+`
 3. 选择 `New repository`
-4. 输入仓库名，例如：`pedcot`
+4. 输入仓库名，例如：`mathchecker`
 5. 可选填写描述
 6. 选择：
    - `Public`：公开仓库
@@ -200,13 +200,13 @@ git commit -m "Initial commit"
 SSH 形式：
 
 ```text
-git@github.com:你的用户名/pedcot.git
+git@github.com:你的用户名/mathchecker.git
 ```
 
 HTTPS 形式：
 
 ```text
-https://github.com/你的用户名/pedcot.git
+https://github.com/你的用户名/mathchecker.git
 ```
 
 推荐使用 **SSH**。
@@ -326,10 +326,10 @@ Hi yourname! You've successfully authenticated, but GitHub does not provide shel
 
 ## 第 13 步：把本地仓库关联到 GitHub 远程仓库
 
-假设你的 GitHub 用户名是 `yourname`，仓库名是 `pedcot`，运行：
+假设你的 GitHub 用户名是 `yourname`，仓库名是 `mathchecker`，运行：
 
 ```bash
-git remote add origin git@github.com:yourname/pedcot.git
+git remote add origin git@github.com:yourname/mathchecker.git
 ```
 
 检查是否添加成功：
@@ -341,8 +341,8 @@ git remote -v
 如果成功，你会看到类似：
 
 ```text
-origin  git@github.com:yourname/pedcot.git (fetch)
-origin  git@github.com:yourname/pedcot.git (push)
+origin  git@github.com:yourname/mathchecker.git (fetch)
+origin  git@github.com:yourname/mathchecker.git (push)
 ```
 
 ---
@@ -375,7 +375,7 @@ git push
 以后每次修改代码后，按下面顺序执行即可：
 
 ```bash
-cd /mnt/f/pedcot
+cd /mnt/f/mathchecker
 git status
 git add .
 git commit -m "写一句说明本次修改"
@@ -396,7 +396,7 @@ git push
 如果你坚持使用 HTTPS，那么关联远程仓库时改成：
 
 ```bash
-git remote add origin https://github.com/yourname/pedcot.git
+git remote add origin https://github.com/yourname/mathchecker.git
 ```
 
 然后推送：
@@ -426,7 +426,7 @@ git push -u origin main
 解决：
 
 ```bash
-cd /mnt/f/pedcot
+cd /mnt/f/mathchecker
 git init
 ```
 
@@ -443,7 +443,7 @@ git remote -v
 如果要改成新的地址：
 
 ```bash
-git remote set-url origin git@github.com:yourname/pedcot.git
+git remote set-url origin git@github.com:yourname/mathchecker.git
 ```
 
 ### 3）报错：`Permission denied (publickey)`
@@ -484,7 +484,7 @@ git remote set-url origin git@github.com:yourname/pedcot.git
 下面是一份最短版命令清单：
 
 ```bash
-cd /mnt/f/pedcot
+cd /mnt/f/mathchecker
 git config --global user.name "你的名字"
 git config --global user.email "你的邮箱"
 git init
@@ -498,7 +498,7 @@ git commit -m "Initial commit"
 ```bash
 eval "$(ssh-agent -s)"
 ssh-add ~/.ssh/id_ed25519
-git remote add origin git@github.com:你的用户名/pedcot.git
+git remote add origin git@github.com:你的用户名/mathchecker.git
 git push -u origin main
 ```
 

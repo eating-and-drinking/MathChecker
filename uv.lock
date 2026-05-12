@@ -709,7 +709,7 @@ wheels = [
 ]
 
 [[package]]
-name = "pedcot"
+name = "mathchecker"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

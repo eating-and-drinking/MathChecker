@@ -7,9 +7,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from pedcot.data.jsonl import read_jsonl
-from pedcot.pipeline.router import LearnedRouterConfig, LearnedSpecialistRouter, build_route_decision_from_scores
-from pedcot.pipeline.router_eval import (
+from mathchecker.data.jsonl import read_jsonl
+from mathchecker.pipeline.router import LearnedRouterConfig, LearnedSpecialistRouter, build_route_decision_from_scores
+from mathchecker.pipeline.router_eval import (
     binary_label_targets,
     build_route_ablation_summary,
     build_row_router_context,
@@ -247,7 +247,7 @@ def main() -> int:
     if args.write_router_config and per_label_thresholds is not None:
         if not args.router_model:
             raise ValueError("--write-router-config requires --router-model.")
-        config_path = Path(args.router_model) / "pedcot_router_config.json"
+        config_path = Path(args.router_model) / "mathchecker_router_config.json"
         existing: dict = {}
         if config_path.exists():
             existing = json.loads(config_path.read_text(encoding="utf-8"))

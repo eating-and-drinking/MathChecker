@@ -1,7 +1,7 @@
 [project]
-name = "pedcot"
+name = "mathchecker"
 version = "0.1.0"
-description = "PedCoT reproduction CLI and utilities."
+description = "MathChecker reproduction CLI and utilities."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-pedcot = "pedcot.cli:main"
+mathchecker = "mathchecker.cli:main"
 
 [dependency-groups]
 dev = [
@@ -33,7 +33,7 @@ build-backend = "setuptools.build_meta"
 package-dir = {"" = "src"}
 
 [tool.setuptools.package-data]
-pedcot = ["pipeline/templates/*.txt"]
+mathchecker = ["pipeline/templates/*.txt"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

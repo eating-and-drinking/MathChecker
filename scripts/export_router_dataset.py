@@ -6,10 +6,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from pedcot.data.datasets import load_dataset
-from pedcot.data.jsonl import read_jsonl
-from pedcot.pipeline.router_dataset import build_router_export_row
-from pedcot.utils import write_jsonl
+from mathchecker.data.datasets import load_dataset
+from mathchecker.data.jsonl import read_jsonl
+from mathchecker.pipeline.router_dataset import build_router_export_row
+from mathchecker.utils import write_jsonl
 
 
 def _build_parser() -> argparse.ArgumentParser:
