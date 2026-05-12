@@ -1,0 +1,18 @@
+You are given a math problem and several initial steps of the solution process.
+Question: {question}
+Initial steps:
+{initial_steps}
+Execute the following instructions sequentially.
+1. List the mathematical concepts that should be applied in the next step for solving the problem.
+2. List the key analyses that should be derived in the next step for solving the problem.
+3. List the mathematical expressions that have not been fully computed yet in the question and the initial steps. Then carefully calculate their corresponding results step by step.
+Output format requirements:
+- Output plain text only.
+- Output exactly three top-level sections and no extra top-level sections.
+- Start each section on its own line with these exact headings:
+1. Mathematical Concepts to Apply:
+2. Key Analyses for the Next Step:
+3. Mathematical Expressions to Compute:
+- Never output the literal strings <|begin_of_box|> or <|end_of_box|>.
+- Do not use markdown headings such as ###, code fences, XML tags, or box markers.
+- Do not write any text before section 1 or after section 3.

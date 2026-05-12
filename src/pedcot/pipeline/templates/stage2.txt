@@ -1,0 +1,45 @@
+You are given a math problem and several initial steps of the solution process.
+Question: {question}
+Initial steps:
+{initial_steps}
+The actual next step is:
+{actual_next_step}
+
+The three reference sections below describe one acceptable view of what the next step could contain. They are helpful guidance, not the only valid solution path. A mathematically correct step may use a different method, a different order of operations, different intermediate variables, a different equivalent decomposition, or may postpone some calculations while still remaining valid.
+
+Global judging rules:
+- Judge the actual next step primarily by whether it is mathematically compatible with the question and the previous steps.
+- Use the reference sections as soft guidance, not as an exclusive gold path.
+- If the actual next step uses a different but mathematically valid method, treat it as aligned when it still advances the solution without conflict.
+- Do not mark contradiction-found merely because the step is different from the reference, less detailed, uses different notation, introduces a new variable, combines or splits substeps differently, or delays computation that can still be done later.
+- Mark contradiction-found only when there is hard evidence of mathematical conflict, such as an arithmetic error, an invalid algebraic transformation, a sign or precedence error, a contradiction with established values or conditions, a non-equivalent substitution/decomposition, or a conclusion that conflicts with the question or previous steps.
+
+Label meanings:
+- correct-and-aligned: The content in this section is mathematically valid and compatible with the question and previous steps, including valid alternative solution methods.
+- reasonable-but-incomplete: The content is plausible and non-contradictory, but it omits an important justification, condition, or computation.
+- nothing-extracted: The actual next step does not meaningfully contain content for this section.
+- contradiction-found: There is hard evidence of mathematical conflict in this section.
+
+Execute the following instructions sequentially.
+1. First extract the mathematical concepts employed in the actual next step. Below is one acceptable reference description of mathematical concepts for the next step. Compare the extracted concepts with the reference concepts, but allow different yet valid concepts if they are still appropriate for solving the problem at this point.
+{stage1_concepts}
+Finally, output a label from the options (correct-and-aligned, reasonable-but-incomplete, nothing-extracted, and contradiction-found) to categorize the use of mathematical concepts for the actual next step.
+2. First extract the key analyses present in the actual next step. Below is one acceptable reference description of analyses for the next step. Compare the actual analyses with the reference analyses, but allow a different valid reasoning route if it remains mathematically compatible with the question and previous steps.
+{stage1_analyses}
+Finally, output a label from the options (correct-and-aligned, reasonable-but-incomplete, nothing-extracted, and contradiction-found) to categorize the problem solving approach for the actual next step.
+3. First extract the calculation results present in the actual next step. Below is one acceptable reference description of calculations for the next step. If the actual next step contains calculations, compare them with the relevant correct results. If it computes a different but still relevant equivalent expression, or legitimately postpones a calculation, do not treat that alone as a contradiction.
+{stage1_calculations}
+Finally, output a label from the options (correct-and-aligned, reasonable-but-incomplete, nothing-extracted, and contradiction-found) to categorize the correctness of calculations for the actual next step.
+Output format requirements:
+- Output plain text only.
+- Output exactly three top-level sections and no extra top-level sections.
+- Start each section on its own line with these exact headings:
+1. Mathematical Concepts to Apply:
+2. Key Analyses for the Next Step:
+3. Mathematical Expressions to Compute:
+- In each section, include exactly one final line in the format: Label: <label>.
+- The <label> must be exactly one of: correct-and-aligned, reasonable-but-incomplete, nothing-extracted, contradiction-found.
+- Never output the literal strings <|begin_of_box|> or <|end_of_box|>.
+- Do not add a separate summary such as "Final Labels".
+- Do not use markdown headings such as ###, code fences, XML tags, or box markers.
+- Do not write any text before section 1 or after section 3.
