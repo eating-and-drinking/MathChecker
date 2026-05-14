@@ -4,12 +4,52 @@ import argparse
 from pathlib import Path
 
 from .core.constants import DATASET_ALL, SUPPORTED_DATASETS
-from .pipeline.runner import download_data_command, evaluate_command, rerun_failed_command, run_command
+from .pipeline.runner import (
+    PIPELINE_CHOICES,
+    download_data_command,
+    evaluate_command,
+    rerun_failed_command,
+    run_command,
+)
 
 STAGE1_TOOLS_CHOICES = ("none", "python", "logic", "both")
 STAGE2_TOOLS_CHOICES = ("none", "triad")
 STAGE2_STEP_TYPE_CHOICES = ("heuristic", "llm", "hybrid")
-STAGE2_ROUTER_CHOICES = ("step-type", "learned", "learned-hybrid")
+STAGE2_ROUTER_CHOICES = ("step-type",)
+
+
+def _add_pipeline_args(parser: argparse.ArgumentParser) -> None:
+    """Add PRISM / pipeline switches shared by `run` and `rerun-failed`."""
+    parser.add_argument(
+        "--pipeline",
+        choices=PIPELINE_CHOICES,
+        default="prism",
+        help="Which decision-layer pipeline to drive predictions through.",
+    )
+    parser.add_argument(
+        "--prism-delta",
+        type=float,
+        default=0.1,
+        help="PRISM conformal miscoverage target delta (default: 0.1).",
+    )
+    parser.add_argument(
+        "--prism-budget",
+        type=int,
+        default=3,
+        help="PRISM max specialists invoked per step (default: 3, the full triad).",
+    )
+    parser.add_argument(
+        "--prism-lambda",
+        type=float,
+        default=0.05,
+        help="PRISM cost-EIG tradeoff (default: 0.05). Larger => fewer calls.",
+    )
+    parser.add_argument(
+        "--prism-p-no-error",
+        type=float,
+        default=0.4,
+        help="Prior mass on tau = infty (no error in trace).",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -39,9 +79,11 @@ def _build_parser() -> argparse.ArgumentParser:
         "--stage2-router",
         choices=STAGE2_ROUTER_CHOICES,
         default="step-type",
+        help="Legacy router used as advisory context only when --pipeline=prism.",
     )
     run_parser.add_argument("--stage2-router-model", default=None)
     run_parser.add_argument("--stage2-router-threshold", type=float, default=0.55)
+    _add_pipeline_args(run_parser)
     resume_group = run_parser.add_mutually_exclusive_group()
     resume_group.add_argument("--resume", dest="resume", action="store_true")
     resume_group.add_argument("--no-resume", dest="resume", action="store_false")
@@ -71,6 +113,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     rerun_failed_parser.add_argument("--stage2-router-model", default=None)
     rerun_failed_parser.add_argument("--stage2-router-threshold", type=float, default=0.55)
+    _add_pipeline_args(rerun_failed_parser)
 
     evaluate_parser = subparsers.add_parser("evaluate", help="Evaluate saved MathChecker predictions.")
     evaluate_parser.add_argument("--dataset", choices=[*SUPPORTED_DATASETS, DATASET_ALL], required=True)
@@ -107,6 +150,11 @@ def main(argv: list[str] | None = None) -> int:
             stage2_router=args.stage2_router,
             stage2_router_model=args.stage2_router_model,
             stage2_router_threshold=args.stage2_router_threshold,
+            pipeline=args.pipeline,
+            prism_delta=args.prism_delta,
+            prism_budget=args.prism_budget,
+            prism_lambda=args.prism_lambda,
+            prism_p_no_error=args.prism_p_no_error,
         )
         for dataset_name, predictions in results.items():
             completed = sum(1 for item in predictions if item.completed)
@@ -127,6 +175,11 @@ def main(argv: list[str] | None = None) -> int:
             stage2_router=args.stage2_router,
             stage2_router_model=args.stage2_router_model,
             stage2_router_threshold=args.stage2_router_threshold,
+            pipeline=args.pipeline,
+            prism_delta=args.prism_delta,
+            prism_budget=args.prism_budget,
+            prism_lambda=args.prism_lambda,
+            prism_p_no_error=args.prism_p_no_error,
         )
         for dataset_name, predictions in results.items():
             completed = sum(1 for item in predictions if item.completed)

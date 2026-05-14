@@ -1,11 +1,12 @@
-"""Inference pipeline components."""
+"""Inference pipeline components.
+
+The legacy `LearnedSpecialistRouter` / `RouteDecision` / `RouterContext`
+exports have been removed as part of the PRISM refactor. Specialist routing
+now lives in `mathchecker.prism.eig` (Expected Information Gain).
+"""
 
 __all__ = [
     "PedCoTPredictor",
-    "LearnedRouterConfig",
-    "LearnedSpecialistRouter",
-    "RouteDecision",
-    "RouterContext",
     "download_data_command",
     "evaluate_command",
     "rerun_failed_command",
@@ -18,22 +19,6 @@ def __getattr__(name: str):
         from .predictor import PedCoTPredictor
 
         return PedCoTPredictor
-    if name == "LearnedRouterConfig":
-        from .router import LearnedRouterConfig
-
-        return LearnedRouterConfig
-    if name == "LearnedSpecialistRouter":
-        from .router import LearnedSpecialistRouter
-
-        return LearnedSpecialistRouter
-    if name == "RouteDecision":
-        from .router import RouteDecision
-
-        return RouteDecision
-    if name == "RouterContext":
-        from .router import RouterContext
-
-        return RouterContext
     if name in {"download_data_command", "evaluate_command", "rerun_failed_command", "run_command"}:
         from .runner import download_data_command, evaluate_command, rerun_failed_command, run_command
 

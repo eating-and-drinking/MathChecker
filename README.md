@@ -31,5 +31,5 @@ uv run pytest
 
 ## Notes
 
-- Prompt and method changes are tracked in [IMPROVEMENT_NOTES.md](IMPROVEMENT_NOTES.md).
+- Current algorithm design is documented in [PRISM_ALGORITHM.md](PRISM_ALGORITHM.md) (overview: [prism_overview.html](prism_overview.html)).
 - Runtime prompt templates live in `src/mathchecker/pipeline/templates/`.

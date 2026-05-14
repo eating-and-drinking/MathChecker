@@ -20,6 +20,9 @@ from ..data.stores import PredictionStore, StageCacheStore
 from ..core.models import TraceExample, TracePrediction
 from ..utils import ensure_parent_dir
 
+# Accepted values for --pipeline.
+PIPELINE_CHOICES = ("legacy", "prism")
+
 
 def _sanitize_for_filename(value: str) -> str:
     return re.sub(r"[^A-Za-z0-9._-]+", "_", value)
@@ -311,6 +314,11 @@ def run_dataset(
     stage2_router: str = "step-type",
     stage2_router_model: str | None = None,
     stage2_router_threshold: float = 0.55,
+    pipeline: str = "prism",
+    prism_delta: float = 0.1,
+    prism_budget: int = 3,
+    prism_lambda: float = 0.05,
+    prism_p_no_error: float = 0.4,
     only_example_ids: set[str] | None = None,
 ) -> list[TracePrediction]:
     examples = load_dataset(dataset, data_dir=data_dir)
@@ -335,7 +343,7 @@ def run_dataset(
     validate_configuration = getattr(client, "validate_configuration", None)
     if callable(validate_configuration):
         validate_configuration()
-    predictor = PedCoTPredictor(
+    base_predictor = PedCoTPredictor(
         client=client,
         cache_store=cache_store,
         stage1_tools_mode=stage1_tools,
@@ -345,6 +353,20 @@ def run_dataset(
         stage2_router_model_path=stage2_router_model,
         stage2_router_confidence_threshold=stage2_router_threshold,
     )
+
+    if pipeline == "prism":
+        from ..prism.predictor import PrismPredictor
+        predictor = PrismPredictor(
+            base_predictor=base_predictor,
+            delta=prism_delta,
+            budget=prism_budget,
+            lam=prism_lambda,
+            p_no_error_prior=prism_p_no_error,
+        )
+    elif pipeline == "legacy":
+        predictor = base_predictor
+    else:
+        raise ValueError(f"Unsupported pipeline: {pipeline}")
 
     def worker(example: TraceExample) -> TracePrediction:
         retry_count = 0
@@ -443,6 +465,11 @@ def run_command(
     stage2_router: str = "step-type",
     stage2_router_model: str | None = None,
     stage2_router_threshold: float = 0.55,
+    pipeline: str = "prism",
+    prism_delta: float = 0.1,
+    prism_budget: int = 3,
+    prism_lambda: float = 0.05,
+    prism_p_no_error: float = 0.4,
     only_example_ids_by_dataset: dict[str, set[str]] | None = None,
 ) -> dict[str, list[TracePrediction]]:
     results: dict[str, list[TracePrediction]] = {}
@@ -465,6 +492,11 @@ def run_command(
             stage2_router=stage2_router,
             stage2_router_model=stage2_router_model,
             stage2_router_threshold=stage2_router_threshold,
+            pipeline=pipeline,
+            prism_delta=prism_delta,
+            prism_budget=prism_budget,
+            prism_lambda=prism_lambda,
+            prism_p_no_error=prism_p_no_error,
             only_example_ids=only_example_ids,
         )
     return results
@@ -531,6 +563,11 @@ def rerun_failed_command(
     stage2_router: str = "step-type",
     stage2_router_model: str | None = None,
     stage2_router_threshold: float = 0.55,
+    pipeline: str = "prism",
+    prism_delta: float = 0.1,
+    prism_budget: int = 3,
+    prism_lambda: float = 0.05,
+    prism_p_no_error: float = 0.4,
 ) -> dict[str, list[TracePrediction]]:
     rerun_ids: dict[str, set[str]] = {}
     for dataset_name in resolve_datasets(dataset):
@@ -564,6 +601,11 @@ def rerun_failed_command(
         stage2_router=stage2_router,
         stage2_router_model=stage2_router_model,
         stage2_router_threshold=stage2_router_threshold,
+        pipeline=pipeline,
+        prism_delta=prism_delta,
+        prism_budget=prism_budget,
+        prism_lambda=prism_lambda,
+        prism_p_no_error=prism_p_no_error,
         only_example_ids_by_dataset=rerun_ids,
     )
 
