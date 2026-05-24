@@ -31,8 +31,10 @@ from ..core.models import (
 from ..pipeline.predictor import PedCoTPredictor
 from .conformal import ConformalSchedule, default_schedule
 from .eig import DEFAULT_SPECIALIST_CANDIDATES, SpecialistCandidate
-from .infer import CONTRADICTION_LABEL_INDEX, PrismEvidence, PrismResult, prism_infer
-from .likelihoods import principle_labels_to_logits
+from .eprocess import EProcessSchedule
+from .infer import PrismEvidence, PrismResult, StoppingRule, prism_infer
+from .joint_calibration import TemperatureMixer
+from .likelihoods import default_sensitivity
 from .posterior import Posterior, length_prior
 from .stage1_consistency import extract_stage1_inconsistency
 
@@ -66,11 +68,12 @@ class PrismPredictor:
         *,
         base_predictor: PedCoTPredictor,
         candidates: Sequence[SpecialistCandidate] = DEFAULT_SPECIALIST_CANDIDATES,
-        schedule: ConformalSchedule | None = None,
+        schedule: StoppingRule | None = None,
         delta: float = 0.1,
         budget: int = 3,
         lam: float = 0.05,
         p_no_error_prior: float = 0.4,
+        mixer: TemperatureMixer | None = None,
     ) -> None:
         self.base = base_predictor
         self.candidates = list(candidates)
@@ -79,6 +82,7 @@ class PrismPredictor:
         self.budget = budget
         self.lam = lam
         self.p_no_error_prior = p_no_error_prior
+        self.mixer = mixer
 
     # ---- public API ----
 
@@ -133,9 +137,6 @@ class PrismPredictor:
             num_steps=num_steps,
             probs=length_prior(num_steps, p_no_error=self.p_no_error_prior),
         )
-        per_step_logits: list[list[float]] = [
-            [0.0, 0.0, 0.0, 0.0] for _ in range(num_steps)
-        ]
         contradiction_strengths: list[float] = [0.0] * num_steps
         step_rows: list[dict[str, Any]] = []
         pred_first_mistake_index: int | None = None
@@ -182,11 +183,18 @@ class PrismPredictor:
 
             # Apply PRISM updates inline.
             from .likelihoods import (
-                make_review_likelihood,
                 make_specialist_likelihood,
                 make_stage1_likelihood,
                 make_stage2_likelihood,
             )
+
+            mixer = self.mixer
+
+            def _temper(vec, channel):
+                v = list(vec)
+                if mixer is not None:
+                    v = mixer.temper(likelihood=v, channel=channel)
+                return v
 
             # (0) Stage1 consistency channel.
             if evidence.stage1_inconsistency > 0.0:
@@ -196,7 +204,7 @@ class PrismPredictor:
                     inconsistency_strength=evidence.stage1_inconsistency,
                     sensitivity=evidence.stage1_sensitivity,
                 )
-                posterior.bayes_update(stage1_lik.values)
+                posterior.bayes_update(_temper(stage1_lik.values, "stage1"))
 
             # (1) Stage2 label channel.
             stage2_lik = make_stage2_likelihood(
@@ -205,10 +213,7 @@ class PrismPredictor:
                 principle_labels=list(evidence.principle_labels),
                 sensitivity=evidence.stage2_sensitivity,
             )
-            posterior.bayes_update(stage2_lik.values)
-            per_step_logits[step_index] = principle_labels_to_logits(
-                list(evidence.principle_labels)
-            )
+            posterior.bayes_update(_temper(stage2_lik.values, "stage2"))
 
             q_specialist_hard = 0.0
             max_valid_alt = 0.0
@@ -225,19 +230,11 @@ class PrismPredictor:
                     sensitivity=cand.sensitivity,
                     source=cand.name,
                 )
-                posterior.bayes_update(spec_lik.values)
+                posterior.bayes_update(_temper(spec_lik.values, cand.name))
                 if hard > q_specialist_hard:
                     q_specialist_hard = hard
                 if valid_alt > max_valid_alt:
                     max_valid_alt = valid_alt
-
-            if evidence.review_mistake_prob is not None:
-                rev_lik = make_review_likelihood(
-                    step_index=step_index,
-                    num_steps=num_steps,
-                    review_mistake_prob=evidence.review_mistake_prob,
-                )
-                posterior.bayes_update(rev_lik.values)
 
             q_stage1 = float(evidence.stage1_inconsistency)
             q_stage2 = stage2_lik.meta.get("q", 0.0) if stage2_lik.meta else 0.0
@@ -261,6 +258,8 @@ class PrismPredictor:
             threshold_commit = schedule.should_commit(
                 step_index=step_index,
                 max_posterior_mass=posterior.max_mass(),
+                posterior_probs=list(posterior.probs),
+                argmax_index=argmax,
             )
             if observable_commit and threshold_commit:
                 committed = True
@@ -424,11 +423,10 @@ class PrismPredictor:
         return PrismEvidence(
             step_index=step_index,
             principle_labels=principle_labels,
-            stage2_sensitivity=0.85,
+            stage2_sensitivity=default_sensitivity("stage2"),
             specialist_emissions=specialist_emissions,
-            review_mistake_prob=None,  # legacy review channels are off in PRISM
             stage1_inconsistency=float(stage1_signal.inconsistency_strength),
-            stage1_sensitivity=0.55,
+            stage1_sensitivity=default_sensitivity("stage1"),
         )
 
     @staticmethod
@@ -466,9 +464,21 @@ class PrismPredictor:
         posterior: Posterior,
         committed: bool,
         num_specialist_calls: int,
-        schedule: ConformalSchedule,
+        schedule: StoppingRule,
         contradiction_strengths: list[float],
     ) -> dict[str, Any]:
+        if isinstance(schedule, ConformalSchedule):
+            schedule_payload: dict[str, Any] = {
+                "type": "conformal",
+                "delta": schedule.delta,
+                "alpha": list(schedule.alpha),
+                "calibration_size": schedule.calibration_size,
+                "meta": schedule.meta,
+            }
+        elif isinstance(schedule, EProcessSchedule):
+            schedule_payload = schedule.to_dict()
+        else:
+            schedule_payload = {"type": "unknown", "repr": repr(schedule)}
         return {
             "step_index": -1,
             "prism_meta": True,
@@ -476,11 +486,7 @@ class PrismPredictor:
             "committed": committed,
             "abstained": not committed,
             "num_specialist_calls": num_specialist_calls,
-            "conformal_schedule": {
-                "delta": schedule.delta,
-                "alpha": list(schedule.alpha),
-                "calibration_size": schedule.calibration_size,
-                "meta": schedule.meta,
-            },
+            "conformal_schedule": schedule_payload,
+            "stopping_schedule": schedule_payload,
             "contradiction_strengths": list(contradiction_strengths),
         }

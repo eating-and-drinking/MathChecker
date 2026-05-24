@@ -25,23 +25,31 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Callable, Sequence
 
+from .attribution import (
+    AttributionEntry,
+    ChannelTrace,
+    attribute_channels,
+)
 from .conformal import ConformalSchedule, default_schedule
 from .eig import (
     DEFAULT_SPECIALIST_CANDIDATES,
     SpecialistCandidate,
     greedy_select,
 )
+from .eprocess import EProcessSchedule
+from .joint_calibration import TemperatureMixer
 from .likelihoods import (
-    make_review_likelihood,
     make_specialist_likelihood,
     make_stage1_likelihood,
     make_stage2_likelihood,
-    principle_labels_to_logits,
 )
 from .posterior import Posterior, length_prior
 
 
-CONTRADICTION_LABEL_INDEX = 3
+# Stopping rules accepted by prism_infer. Both ConformalSchedule and
+# EProcessSchedule expose .should_commit(step_index=, max_posterior_mass=,
+# posterior_probs=, argmax_index=) -> bool; the rule is structurally typed.
+StoppingRule = ConformalSchedule | EProcessSchedule
 
 
 # ---- evidence carriers ----
@@ -52,7 +60,6 @@ class PrismEvidence:
     principle_labels: tuple[str | None, ...]
     stage2_sensitivity: float = 0.85
     specialist_emissions: dict[str, tuple[float, float]] = field(default_factory=dict)
-    review_mistake_prob: float | None = None
     # Stage1 soft-reference consistency: scalar in [0, 1]. 0 means no signal,
     # higher means stronger evidence the current step contradicts the
     # independent stage1 prediction. See prism/stage1_consistency.py.
@@ -78,6 +85,9 @@ class PrismResult:
     final_posterior: Posterior
     step_traces: list[StepTrace]
     num_specialist_calls: int
+    # Per-channel counterfactual attribution computed after the loop closes.
+    # Empty when attribution=False was passed to prism_infer.
+    attribution: list[AttributionEntry] = field(default_factory=list)
 
     def to_dict(self) -> dict:
         return {
@@ -97,6 +107,17 @@ class PrismResult:
                 }
                 for st in self.step_traces
             ],
+            "attribution": [
+                {
+                    "step_index": a.step_index,
+                    "channel": a.channel,
+                    "kl": a.kl_to_counterfactual,
+                    "tv": a.tv_to_counterfactual,
+                    "factual_argmax": a.factual_argmax,
+                    "counterfactual_argmax": a.counterfactual_argmax,
+                }
+                for a in self.attribution
+            ],
         }
 
 
@@ -109,12 +130,22 @@ def prism_infer(
     evidence_at_step: Callable[[int], PrismEvidence],
     specialist_invoker: SpecialistInvoker | None = None,
     candidates: Sequence[SpecialistCandidate] = DEFAULT_SPECIALIST_CANDIDATES,
-    schedule: ConformalSchedule | None = None,
+    schedule: StoppingRule | None = None,
     budget: int = 3,
     lam: float = 0.05,
     p_no_error_prior: float = 0.4,
     early_stop: bool = True,
+    mixer: TemperatureMixer | None = None,
+    attribution: bool = False,
 ) -> PrismResult:
+    """Run the PRISM inference loop.
+
+    `schedule` accepts either a ConformalSchedule (legacy split-conformal
+    Bonferroni) or an EProcessSchedule (anytime-valid e-process). The latter
+    is the preferred stopping rule -- see prism/eprocess.py for the
+    theoretical advantage. When unspecified, defaults to the conservative
+    split-conformal floor for backward compatibility.
+    """
     schedule = schedule or default_schedule(num_steps=num_steps)
 
     posterior = Posterior(
@@ -126,10 +157,8 @@ def prism_infer(
     num_specialist_calls = 0
     committed = False
 
-    per_step_logits: list[list[float]] = [
-        [0.0, 0.0, 0.0, 0.0] for _ in range(num_steps)
-    ]
     contradiction_strengths: list[float] = [0.0] * num_steps
+    channel_traces: list[ChannelTrace] = []
 
     for t in range(num_steps):
         bundle = evidence_at_step(t)
@@ -147,7 +176,12 @@ def prism_infer(
                 inconsistency_strength=bundle.stage1_inconsistency,
                 sensitivity=bundle.stage1_sensitivity,
             )
-            posterior.bayes_update(stage1_lik.values)
+            lik_vec = list(stage1_lik.values)
+            if mixer is not None:
+                lik_vec = mixer.temper(likelihood=lik_vec, channel="stage1")
+            posterior.bayes_update(lik_vec)
+            if attribution:
+                channel_traces.append(ChannelTrace(step_index=t, channel="stage1", likelihood=tuple(lik_vec)))
 
         # (1) Stage2 channel
         stage2_lik = make_stage2_likelihood(
@@ -156,8 +190,12 @@ def prism_infer(
             principle_labels=list(bundle.principle_labels),
             sensitivity=bundle.stage2_sensitivity,
         )
-        posterior.bayes_update(stage2_lik.values)
-        per_step_logits[t] = principle_labels_to_logits(list(bundle.principle_labels))
+        lik_vec = list(stage2_lik.values)
+        if mixer is not None:
+            lik_vec = mixer.temper(likelihood=lik_vec, channel="stage2")
+        posterior.bayes_update(lik_vec)
+        if attribution:
+            channel_traces.append(ChannelTrace(step_index=t, channel="stage2", likelihood=tuple(lik_vec)))
 
         # (2) EIG-driven specialist selection (for diagnostics + production gating)
         selected, eig_scores = greedy_select(
@@ -169,6 +207,14 @@ def prism_infer(
         )
 
         # (3) Specialist channel updates
+        def _apply_spec(name: str, spec_lik_values: tuple[float, ...]) -> None:
+            vec = list(spec_lik_values)
+            if mixer is not None:
+                vec = mixer.temper(likelihood=vec, channel=name)
+            posterior.bayes_update(vec)
+            if attribution:
+                channel_traces.append(ChannelTrace(step_index=t, channel=name, likelihood=tuple(vec)))
+
         if specialist_invoker is not None:
             # Production: invoke only what EIG selected.
             for cand in selected:
@@ -182,7 +228,7 @@ def prism_infer(
                     sensitivity=cand.sensitivity,
                     source=cand.name,
                 )
-                posterior.bayes_update(spec_lik.values)
+                _apply_spec(cand.name, spec_lik.values)
         else:
             # Offline replay: consume all emissions already in the bundle.
             for tool_name, (hard, valid_alt) in bundle.specialist_emissions.items():
@@ -198,16 +244,7 @@ def prism_infer(
                     sensitivity=cand.sensitivity,
                     source=cand.name,
                 )
-                posterior.bayes_update(spec_lik.values)
-
-        # (4) Review channel (optional)
-        if bundle.review_mistake_prob is not None:
-            rev_lik = make_review_likelihood(
-                step_index=t,
-                num_steps=num_steps,
-                review_mistake_prob=bundle.review_mistake_prob,
-            )
-            posterior.bayes_update(rev_lik.values)
+                _apply_spec(cand.name, spec_lik.values)
 
         # Contradiction-strength bookkeeping.
         # Combine FOUR channels into ONE effective per-step contradiction signal:
@@ -255,6 +292,8 @@ def prism_infer(
         threshold_commit = schedule.should_commit(
             step_index=t,
             max_posterior_mass=posterior.max_mass(),
+            posterior_probs=list(posterior.probs),
+            argmax_index=argmax_idx,
         )
         step_committed = observable_commit and threshold_commit
         step_traces.append(
@@ -278,6 +317,14 @@ def prism_infer(
     argmax_idx = posterior.argmax_index()
     pred_first_mistake_index = None if argmax_idx == -1 else argmax_idx
 
+    attribution_entries: list[AttributionEntry] = []
+    if attribution and channel_traces:
+        attribution_entries = attribute_channels(
+            final_probs=list(posterior.probs),
+            channel_traces=channel_traces,
+            num_steps=num_steps,
+        )
+
     return PrismResult(
         pred_first_mistake_index=pred_first_mistake_index,
         committed=committed,
@@ -285,4 +332,5 @@ def prism_infer(
         final_posterior=posterior,
         step_traces=step_traces,
         num_specialist_calls=num_specialist_calls,
+        attribution=attribution_entries,
     )

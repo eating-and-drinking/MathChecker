@@ -43,10 +43,19 @@ class Posterior:
     # observe step t and it looks consistent, hypotheses tau > t cannot have
     # been "blocked" by step t.
     observed_up_to: int = 0  # number of steps for which evidence has been seen
+    # Mixture weight for the uniform-prior floor. After each update we
+    # interpolate pi <- (1 - floor_weight) * pi + floor_weight * uniform.
+    # This guarantees no hypothesis is ever crushed to 0, so a posterior
+    # collapse from early multiplicative updates can be recovered if later
+    # evidence contradicts. Equivalent to a Bayesian prior of weight
+    # `floor_weight` against perfect-confidence in any single hypothesis.
+    floor_weight: float = 1e-4
 
     def __post_init__(self) -> None:
         if self.num_steps < 0:
             raise ValueError("num_steps must be non-negative")
+        if not 0.0 <= self.floor_weight < 1.0:
+            raise ValueError("floor_weight must be in [0, 1)")
         if not self.probs:
             self.probs = uniform_prior(self.num_steps)
         elif len(self.probs) != self.num_steps + 1:
@@ -54,6 +63,7 @@ class Posterior:
                 f"probs length {len(self.probs)} does not match T+1 = {self.num_steps + 1}"
             )
         self._renormalize()
+        self._apply_floor()
 
     # ---- accessors ----
 
@@ -122,6 +132,7 @@ class Posterior:
             return
         inv = 1.0 / total
         self.probs = [p * inv for p in new_probs]
+        self._apply_floor()
 
     def mark_observed(self, step_index: int) -> None:
         """Record that step `step_index` has been processed."""
@@ -175,43 +186,6 @@ class Posterior:
 
         self.bayes_update(multipliers)
 
-    def gibbs_refine(
-        self,
-        *,
-        per_step_label_logits: Sequence[Sequence[float]],
-        contradiction_label_index: int,
-    ) -> None:
-        """One Gibbs step that re-fuses the per-step label posterior into pi.
-
-        This subsumes the legacy stage2_review + stage2_specialist_review
-        path. Given calibrated per-step label logits, we compute the marginal
-        probability of "this step is a hard contradiction" and re-apply the
-        Phi-invariant softly.
-
-        per_step_label_logits[t] is a logit vector over PRINCIPLE_LABELS for
-        step t. We extract the softmax probability of the contradiction class
-        and pass it through apply_phi_invariant.
-        """
-        if len(per_step_label_logits) != self.num_steps:
-            raise ValueError("per_step_label_logits length must equal num_steps")
-        contradiction_scores: list[float] = []
-        for logits in per_step_label_logits:
-            if not logits:
-                contradiction_scores.append(0.0)
-                continue
-            m = max(logits)
-            exps = [math.exp(v - m) for v in logits]
-            denom = sum(exps)
-            if denom <= 0.0:
-                contradiction_scores.append(0.0)
-                continue
-            idx = contradiction_label_index
-            if idx < 0 or idx >= len(exps):
-                contradiction_scores.append(0.0)
-                continue
-            contradiction_scores.append(exps[idx] / denom)
-        self.apply_phi_invariant(contradiction_strength_at=contradiction_scores)
-
     # ---- helpers ----
 
     def _renormalize(self) -> None:
@@ -222,6 +196,26 @@ class Posterior:
         inv = 1.0 / total
         self.probs = [max(0.0, p * inv) for p in self.probs]
 
+    def _apply_floor(self) -> None:
+        """Interpolate the posterior with a uniform prior of weight `floor_weight`.
+
+        pi' = (1 - w) * pi + w * uniform
+
+        This guarantees the smallest posterior mass is at least
+        `floor_weight / num_hypotheses`, so no hypothesis is irrecoverably
+        crushed to 0 by multiplicative Bayes updates. Mathematically
+        equivalent to maintaining a (1-w):w mixture between the data-driven
+        belief and the uniform reference prior.
+        """
+        w = self.floor_weight
+        if w <= 0.0:
+            return
+        n = self.num_hypotheses
+        if n == 0:
+            return
+        uniform_mass = 1.0 / n
+        self.probs = [(1.0 - w) * p + w * uniform_mass for p in self.probs]
+
     def as_dict(self) -> dict:
         return {
             "num_steps": self.num_steps,
@@ -231,6 +225,7 @@ class Posterior:
             "max_mass": self.max_mass(),
             "entropy_nats": self.entropy(),
             "argmax_index": self.argmax_index(),
+            "floor_weight": self.floor_weight,
         }
 
 
@@ -255,7 +250,6 @@ def length_prior(num_steps: int, *, p_no_error: float = 0.4) -> list[float]:
         raise ValueError("p_no_error must be in [0, 1]")
     if num_steps == 0:
         return [1.0]
-    # Tent-shaped weighting over step indices.
     weights = []
     half = (num_steps - 1) / 2.0 if num_steps > 1 else 0.0
     for k in range(num_steps):

@@ -53,7 +53,6 @@ from mathchecker.prism.likelihoods import (  # noqa: E402
     make_specialist_likelihood,
     make_stage1_likelihood,
     make_stage2_likelihood,
-    principle_labels_to_logits,
 )
 from mathchecker.prism.posterior import Posterior, length_prior  # noqa: E402
 from mathchecker.prism.stage1_consistency import extract_stage1_inconsistency  # noqa: E402

@@ -99,6 +99,22 @@ def extract_stage1_inconsistency(
                 f"step claims '{lhs_norm} = {step_rhs}' but evaluation gives {evaluated}"
             )
 
+    # Inequality predictions: stage1 says "x >= 0" / "answer must be positive";
+    # step asserts a value that violates that predicate.
+    inequality_violations = _check_inequalities(
+        stage1_calculations=stage1_calculations,
+        current_step=current_step,
+    )
+    contradictions.extend(inequality_violations)
+
+    # Domain predicates: stage1 says "x must be a positive integer";
+    # step asserts a non-integer / negative value where x should appear.
+    domain_violations = _check_domain_predicates(
+        stage1_calculations=stage1_calculations,
+        current_step=current_step,
+    )
+    contradictions.extend(domain_violations)
+
     if contradictions:
         # Hard inconsistency. We cap at 0.92 to avoid 0/1 absolute claims.
         return Stage1ConsistencyResult(
@@ -231,3 +247,111 @@ def _internal_consistency_only(current_step: str) -> Stage1ConsistencyResult:
     if contradictions:
         return Stage1ConsistencyResult(0.85, 0, tuple(contradictions), "numeric_mismatch")
     return Stage1ConsistencyResult(0.0, 0, (), "no_signal")
+
+
+# ---- inequality predicate channel ----
+
+# Capture predicates like  "x >= 0" / "result < 100" / "answer > -5"
+# We don't need to identify the variable name -- just record (op, value).
+_INEQUALITY_RE = re.compile(
+    r"(?:[a-zA-Z_][\w]*\s*)?(<=|>=|<|>)\s*(-?\d+(?:\.\d+)?)"
+)
+# Phrases like "answer is X" / "result equals X" used to extract step's claim
+# of a final numeric value.
+_RESULT_CLAIM_RE = re.compile(
+    r"(?:answer|result|sum|product|total|value|so\s+(?:we|x|y|n))\s*"
+    r"(?:is|equals?|=|:|will be)\s*(-?\d+(?:\.\d+)?)",
+    re.IGNORECASE,
+)
+
+
+def _check_inequalities(*, stage1_calculations: str | None, current_step: str | None) -> list[str]:
+    """Detect violations of inequality predictions from stage1.
+
+    Conservative: only flags when stage1 explicitly states an inequality
+    AND the step asserts a concrete numeric "answer / result" value that
+    violates it.
+    """
+    if not stage1_calculations or not current_step:
+        return []
+    constraints = _INEQUALITY_RE.findall(stage1_calculations)
+    if not constraints:
+        return []
+    claims = _RESULT_CLAIM_RE.findall(current_step)
+    if not claims:
+        return []
+    violations: list[str] = []
+    for raw_value in claims:
+        try:
+            v = float(raw_value)
+        except ValueError:
+            continue
+        for op, bound_str in constraints:
+            try:
+                b = float(bound_str)
+            except ValueError:
+                continue
+            ok = True
+            if op == ">":
+                ok = v > b
+            elif op == ">=":
+                ok = v >= b
+            elif op == "<":
+                ok = v < b
+            elif op == "<=":
+                ok = v <= b
+            if not ok:
+                violations.append(
+                    f"stage1 expected value {op} {bound_str}, but step asserts value = {v}"
+                )
+    return violations
+
+
+# ---- domain predicate channel ----
+
+# Recognize stage1 statements about value domain:
+#   "x must be a positive integer"
+#   "the answer should be an integer"
+#   "y is non-negative"
+_DOMAIN_PATTERNS = (
+    (re.compile(r"positive\s+integer", re.IGNORECASE), "positive_integer"),
+    (re.compile(r"non[-\s]*negative\s+integer", re.IGNORECASE), "nonneg_integer"),
+    (re.compile(r"non[-\s]*negative", re.IGNORECASE), "nonneg"),
+    (re.compile(r"\b(?:must be|should be|is)\s+(?:an?\s+)?integer\b", re.IGNORECASE), "integer"),
+    (re.compile(r"strictly\s+positive", re.IGNORECASE), "strictly_positive"),
+    (re.compile(r"\bpositive\b", re.IGNORECASE), "positive"),
+)
+
+
+def _check_domain_predicates(*, stage1_calculations: str | None, current_step: str | None) -> list[str]:
+    """Detect domain violations: stage1 says 'positive integer', step claims -3 or 2.5."""
+    if not stage1_calculations or not current_step:
+        return []
+    domains: list[str] = []
+    for pattern, tag in _DOMAIN_PATTERNS:
+        if pattern.search(stage1_calculations):
+            domains.append(tag)
+    if not domains:
+        return []
+    claims = _RESULT_CLAIM_RE.findall(current_step)
+    if not claims:
+        return []
+    violations: list[str] = []
+    for raw_value in claims:
+        try:
+            v = float(raw_value)
+        except ValueError:
+            continue
+        is_int = v.is_integer()
+        for tag in domains:
+            if tag == "positive_integer" and not (is_int and v > 0):
+                violations.append("stage1 expected positive integer; step asserts " + str(v))
+            elif tag == "nonneg_integer" and not (is_int and v >= 0):
+                violations.append("stage1 expected nonneg integer; step asserts " + str(v))
+            elif tag == "integer" and not is_int:
+                violations.append("stage1 expected integer; step asserts " + str(v))
+            elif tag in {"strictly_positive", "positive"} and v <= 0:
+                violations.append("stage1 expected positive value; step asserts " + str(v))
+            elif tag == "nonneg" and v < 0:
+                violations.append("stage1 expected non-negative; step asserts " + str(v))
+    return violations

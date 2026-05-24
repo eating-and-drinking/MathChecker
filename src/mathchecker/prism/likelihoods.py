@@ -58,22 +58,112 @@ class Likelihood:
         return list(self.values)
 
 
-# ---- stage2 label channel ----
+# ---- calibration loading ----
 
-# This index list matches PRINCIPLE_LABELS in core.constants and reflects how
-# strongly each label points at "this step is the first mistake".
-_LABEL_TO_MISTAKE_PROB = {
+# Default hand-coded values (used when no calibration file is present).
+_DEFAULT_LABEL_MISTAKE_PROB = {
     "correct-and-aligned": 0.02,
     "reasonable-but-incomplete": 0.10,
     "nothing-extracted": 0.20,
     "contradiction-found": 0.90,
 }
+_DEFAULT_SENSITIVITIES = {"stage1": 0.55, "stage2": 0.85, "specialist": 0.75}
 
+# Active values. Mutable: load_calibration() overwrites these.
+_LABEL_TO_MISTAKE_PROB: dict[str, float] = dict(_DEFAULT_LABEL_MISTAKE_PROB)
+_SENSITIVITIES: dict[str, float] = dict(_DEFAULT_SENSITIVITIES)
+# Per-specialist isotonic calibration: tool_name -> {"x": [...], "y": [...]}.
+_SPECIALIST_ISOTONIC: dict[str, dict] = {}
+_CALIBRATION_META: dict = {"loaded": False, "version": None, "calibration_size": 0}
+
+
+def load_calibration(path: "str | Path | None" = None) -> dict:
+    """Load calibrated likelihood parameters from JSON.
+
+    Looks at `path` if given, else at the default
+    artifacts/prism_likelihoods.json relative to CWD. Falls back silently to
+    hard-coded defaults if absent. Idempotent and safe to call multiple times.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    target = _Path(path) if path is not None else _Path("artifacts/prism_likelihoods.json")
+    if not target.exists():
+        _CALIBRATION_META.update({"loaded": False})
+        return dict(_CALIBRATION_META)
+    try:
+        payload = _json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, _json.JSONDecodeError):
+        return dict(_CALIBRATION_META)
+
+    global _LABEL_TO_MISTAKE_PROB, _SENSITIVITIES, _SPECIALIST_ISOTONIC
+    label_map = payload.get("label_mistake_prob") or {}
+    sensitivities = payload.get("sensitivities") or {}
+    isotonic = payload.get("specialist_isotonic") or {}
+
+    if isinstance(label_map, dict):
+        _LABEL_TO_MISTAKE_PROB = {
+            k: float(v) for k, v in label_map.items() if isinstance(v, (int, float))
+        }
+    if isinstance(sensitivities, dict):
+        _SENSITIVITIES = {
+            k: float(v) for k, v in sensitivities.items() if isinstance(v, (int, float))
+        }
+    if isinstance(isotonic, dict):
+        _SPECIALIST_ISOTONIC = {
+            k: v for k, v in isotonic.items() if isinstance(v, dict)
+        }
+
+    _CALIBRATION_META.update(
+        loaded=True,
+        version=payload.get("version"),
+        calibration_size=int(payload.get("calibration_size", 0)),
+    )
+    return dict(_CALIBRATION_META)
+
+
+def reset_calibration_to_defaults() -> None:
+    """Restore hand-coded defaults. Useful for tests that mutate calibration."""
+    global _LABEL_TO_MISTAKE_PROB, _SENSITIVITIES, _SPECIALIST_ISOTONIC
+    _LABEL_TO_MISTAKE_PROB = dict(_DEFAULT_LABEL_MISTAKE_PROB)
+    _SENSITIVITIES = dict(_DEFAULT_SENSITIVITIES)
+    _SPECIALIST_ISOTONIC = {}
+    _CALIBRATION_META.update(loaded=False, version=None, calibration_size=0)
+
+
+def default_sensitivity(channel: str) -> float:
+    return float(_SENSITIVITIES.get(channel, _DEFAULT_SENSITIVITIES.get(channel, 0.7)))
+
+
+def isotonic_predict(tool_name: str, x: float) -> float | None:
+    """Apply learned isotonic mapping for a specialist; return None if unfit."""
+    spec = _SPECIALIST_ISOTONIC.get(tool_name)
+    if not spec:
+        return None
+    xs = spec.get("x") or []
+    ys = spec.get("y") or []
+    if not xs or not ys or len(xs) != len(ys):
+        return None
+    # Piecewise-constant: find the largest x_i <= x.
+    out = float(ys[0])
+    for xi, yi in zip(xs, ys):
+        if x >= xi:
+            out = float(yi)
+        else:
+            break
+    return out
+
+
+# ---- stage2 label channel ----
 
 def _label_mistake_prob(label: str | None) -> float:
     if label is None:
         return 0.20
     return _LABEL_TO_MISTAKE_PROB.get(label.strip().lower(), 0.20)
+
+
+# Auto-load on import (no-op if file absent).
+load_calibration()
 
 
 def make_stage2_likelihood(
@@ -240,72 +330,3 @@ def make_stage1_likelihood(
     )
 
 
-# ---- review channel ----
-
-def make_review_likelihood(
-    *,
-    step_index: int,
-    num_steps: int,
-    review_mistake_prob: float,
-    sensitivity: float = 0.6,
-) -> Likelihood:
-    """Likelihood for a review verdict (legacy stage2_review style).
-
-    Used inside Gibbs refine. Sensitivity is intentionally lower because the
-    review channel is correlated with the stage2 channel (same LLM family,
-    similar prompts), and we don't want to double-count.
-    """
-    q = max(0.0, min(1.0, float(review_mistake_prob)))
-    s = sensitivity
-    base = 1.0 - s
-    values: list[float] = []
-    for tau in range(num_steps):
-        if tau == step_index:
-            p = base + s * q
-        elif tau < step_index:
-            p = base + s * 0.5
-        else:
-            p = base + s * (1.0 - q)
-        values.append(max(p, 1e-6))
-    values.append(max(base + s * (1.0 - q), 1e-6))
-    return Likelihood(
-        values=tuple(values),
-        source=f"review:step{step_index}",
-        meta={"q": q, "sensitivity": sensitivity},
-    )
-
-
-# ---- contradiction-strength extraction from principle labels ----
-
-def principle_labels_to_contradiction_strength(
-    principle_labels,
-) -> float:
-    """Squash per-principle labels to a single contradiction strength in [0, 1]."""
-    if not principle_labels:
-        return 0.0
-    return max(_label_mistake_prob(label) for label in principle_labels)
-
-
-def principle_labels_to_logits(
-    principle_labels,
-    *,
-    contradiction_label_index: int = 3,
-    temperature: float = 1.0,
-):
-    """Produce a 4-class logit vector for a step's principle labels.
-
-    Index order matches core.constants.PRINCIPLE_LABELS:
-      0: correct-and-aligned
-      1: reasonable-but-incomplete
-      2: nothing-extracted
-      3: contradiction-found
-    """
-    del contradiction_label_index
-    q = principle_labels_to_contradiction_strength(principle_labels)
-    p_contradiction = q
-    p_reasonable = (1.0 - q) * 0.35
-    p_correct = (1.0 - q) * 0.55
-    p_nothing = (1.0 - q) * 0.10
-    probs = [p_correct, p_reasonable, p_nothing, p_contradiction]
-    eps = 1e-6
-    return [math.log(p + eps) / max(temperature, 1e-3) for p in probs]

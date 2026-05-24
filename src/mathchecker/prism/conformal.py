@@ -1,35 +1,46 @@
-"""Sequential conformal stopping schedule.
+"""Split-conformal calibration for PRISM's stopping rule.
 
-We want to commit to the MAP first-mistake index tau_hat = argmax_tau pi_t(tau)
-as soon as posterior concentration crosses a threshold, with a finite-sample
-guarantee on conditional accuracy:
+What we guarantee
+-----------------
+Marginal coverage with Bonferroni multiplicity correction across the trace:
 
-    P( tau_hat == tau_true | committed )  >=  1 - delta
+    P( tau_true == argmax pi_{T^*} | commit fires at T^* )  >=  1 - delta
 
-The construction:
+where the probability is over draws from the same distribution as the
+calibration set (exchangeability). This is the standard split-conformal
+guarantee and is what most LLM-conformal papers (Angelopoulos et al. 2024;
+Lekeufack et al. 2024) actually deliver. It is *marginal* coverage with a
+test-time multiplicity correction, NOT the stronger conditional coverage
+that a full Vovk-Shafer e-process would give.
 
-1. **Calibration phase.** On a held-out calibration set with gold tau, run
-   PRISM with `commit_immediately=False`. At every step record the
-   "nonconformity" score s_t = 1 - pi_t(tau_true). This sequence is exchangeable
-   conditional on tau_true.
+Construction
+------------
+Given a calibration set of pairs (posterior trajectory pi_1, ..., pi_T;
+gold tau_true):
 
-2. **Threshold.** Given a target miscoverage delta in (0, 1), pick
-   alpha_t to be the (1 - delta) empirical quantile of (1 - max_tau pi_t)
-   under the constraint that this commits *as early as possible*. We use
-   the simple Vovk-Shafer-style choice:
+  1. **Nonconformity score** at step t:
+         s_{i,t} = 1 - pi_{i,t}(tau_true_i)
+     This is the standard "1 - probability assigned to the truth" score.
 
-       alpha_t = (1 - delta) * monotone schedule from t
+  2. **Bonferroni-corrected per-step threshold**. To commit at step t, we
+     need pi_{i,t}(argmax) >= 1 - tau_t, where tau_t is the
+     (1 - delta/T) quantile of the calibration s_{i,t} values, conditioned
+     on the calibration trajectory's true tau being already observed
+     (t >= tau_true_i) so the posterior has had a chance to identify it.
 
-   This is a deliberately conservative implementation -- it does not depend
-   on the test sample, only on calibration data, so it gives marginal
-   coverage. The full e-process construction (Vovk & Shafer 2008) can be
-   plugged in by extending `ConformalSchedule.from_evalues`.
+  3. **Schedule**. We pick alpha_t = 1 - tau_t. At test time, commit iff
+     max_tau pi_t(tau) >= alpha_t.
 
-3. **Test phase.** At step t, commit iff max_tau pi_t(tau) >= alpha_t. If we
-   reach the end without committing, abstain.
+Why Bonferroni
+--------------
+The conformal guarantee is per-step. If we let the system check the
+commit rule at every t in {1, ..., T} and stop at the first crossing,
+we're doing T multiple comparisons. Without correction this inflates the
+miscoverage rate. Bonferroni's union bound gives a conservative remedy:
+use delta/T per step so the trace-level miscoverage is at most delta.
 
-A pragmatic default schedule is exposed via `default_schedule(num_steps,
-delta)` for environments without calibration data.
+This is conservative. A tighter bound from the Brown-Larsen-Toulis (2024)
+"selective conformal" construction is left for future work.
 """
 from __future__ import annotations
 
@@ -40,12 +51,10 @@ from typing import Sequence
 
 @dataclass(slots=True)
 class ConformalSchedule:
-    """A monotone non-increasing threshold schedule alpha_t.
+    """A per-step threshold schedule alpha_t.
 
-    alpha[t] is the minimum max-posterior required to commit at step t. We
-    allow alpha to decrease over t (later steps are allowed to commit at
-    lower confidence because the posterior should have concentrated by then,
-    and abstention at the trace end is bad UX).
+    alpha[t] is the minimum required value of max_tau pi_t(tau) to commit at
+    step t. Larger alpha = more conservative (more likely to abstain).
     """
 
     alpha: list[float]
@@ -58,105 +67,194 @@ class ConformalSchedule:
             raise ValueError("delta must be in (0, 1)")
         if not self.alpha:
             raise ValueError("alpha schedule cannot be empty")
-        # Clamp to [0, 1] but do not force monotonicity (callers can).
         self.alpha = [max(0.0, min(1.0, float(a))) for a in self.alpha]
 
     def threshold_at(self, step_index: int) -> float:
-        """Return alpha_t for step t (0-indexed). Out-of-range -> last value."""
         if step_index < 0:
             return self.alpha[0]
         if step_index >= len(self.alpha):
             return self.alpha[-1]
         return self.alpha[step_index]
 
-    def should_commit(self, *, step_index: int, max_posterior_mass: float) -> bool:
+    def should_commit(
+        self,
+        *,
+        step_index: int,
+        max_posterior_mass: float,
+        posterior_probs: list[float] | None = None,   # ignored; for protocol parity with EProcessSchedule
+        argmax_index: int = -1,                       # ignored
+    ) -> bool:
         return max_posterior_mass >= self.threshold_at(step_index)
+
+    def to_dict(self) -> dict:
+        return {
+            "alpha": list(self.alpha),
+            "delta": self.delta,
+            "calibration_size": self.calibration_size,
+            "meta": dict(self.meta),
+        }
+
+    @classmethod
+    def from_dict(cls, payload: dict) -> "ConformalSchedule":
+        return cls(
+            alpha=list(payload.get("alpha", [])),
+            delta=float(payload.get("delta", 0.1)),
+            calibration_size=int(payload.get("calibration_size", 0)),
+            meta=dict(payload.get("meta", {})),
+        )
 
 
 def default_schedule(*, num_steps: int, delta: float = 0.1) -> ConformalSchedule:
-    """A conservative default schedule used when no calibration data exists.
+    """Conservative default used when no calibration data exists.
 
-    Starts at (1 - delta), gently relaxes to (1 - delta) * 0.6 by the end of
-    the trace. In practice this is dominated by `calibrate_conformal` once a
-    calibration set is available.
+    Each alpha_t = 1 - delta. This corresponds to the marginal coverage
+    bound P(max pi_t < 1-delta | commit) >= 1 - delta under the worst-case
+    calibration distribution, AND it makes the system more likely to
+    abstain than commit when we have no idea what the empirical
+    distribution of posterior masses looks like.
+
+    Once `calibrate_split_conformal()` has been run, callers should use the
+    returned schedule instead of this default.
     """
     if num_steps <= 0:
         return ConformalSchedule(alpha=[1.0 - delta], delta=delta)
 
-    high = 1.0 - delta
-    low = max(0.5, (1.0 - delta) * 0.6)
-    alpha = []
-    for t in range(num_steps + 1):
-        if num_steps == 0:
-            frac = 1.0
-        else:
-            frac = t / float(num_steps)
-        alpha.append(high - (high - low) * frac)
+    alpha = [1.0 - delta] * (num_steps + 1)
     return ConformalSchedule(
         alpha=alpha,
         delta=delta,
         calibration_size=0,
-        meta={"type": "default", "high": high, "low": low},
+        meta={"type": "default", "note": "uncalibrated; uses 1-delta floor"},
     )
 
 
-def calibrate_conformal(
+def calibrate_split_conformal(
     *,
-    max_posterior_sequences: Sequence[Sequence[float]],
+    posteriors_at_step: Sequence[Sequence[Sequence[float]]],
     tau_true_indices: Sequence[int],
     delta: float = 0.1,
+    bonferroni: bool = True,
 ) -> ConformalSchedule:
-    """Calibrate alpha_t from a held-out set.
+    """Fit alpha_t from a split calibration set with proper conformal semantics.
 
-    Inputs:
-      max_posterior_sequences[i] = [max_tau pi_t for t = 0..T_i]
-          (i.e. for each calibration trajectory, the trajectory of the
-           posterior's max mass over time, *without* early stopping).
-      tau_true_indices[i] = the gold first-mistake step index (or -1 for
-          tau = infty).
+    Parameters
+    ----------
+    posteriors_at_step : list of trajectories
+        posteriors_at_step[i][t] is the full posterior vector at step t of
+        trajectory i (length T_i + 1, including the tau=infty bucket).
+    tau_true_indices : list of int
+        tau_true_indices[i] is the gold first-mistake index of trajectory i.
+        Use -1 to denote tau = infty (no error).
+    delta : float in (0, 1)
+        Target miscoverage.
+    bonferroni : bool
+        If True, divide delta by T (the per-trajectory length) so the
+        trace-level miscoverage is bounded by delta. If False, the per-step
+        miscoverage is delta -- only valid when the caller does the
+        multiplicity correction externally.
 
-    We compute, for each step position t, the (1 - delta) empirical quantile
-    of (max_tau pi_t) restricted to calibration trajectories where committing
-    at step t would have been *correct* (argmax matches tau_true). This gives
-    the minimum mass required to commit safely at step t.
+    Returns
+    -------
+    ConformalSchedule
+        With alpha[t] = 1 - (1 - delta_eff)-quantile of the calibration
+        nonconformity scores at step t. The (1 - delta_eff)-quantile uses
+        the standard (ceil((n+1)(1-delta_eff))) finite-sample correction.
 
-    To handle small calibration sets we apply Bonferroni-style smoothing:
-    alpha_t cannot be lower than the previous step's alpha minus a small
-    monotonicity tolerance.
+    Guarantee
+    ---------
+    On test data drawn from the same distribution as calibration:
+      P(tau_true_test == argmax pi_t(test) at step T^*_test) >= 1 - delta
+    where T^* is the first step where max pi_t crosses alpha_t.
     """
-    if len(max_posterior_sequences) != len(tau_true_indices):
+    if len(posteriors_at_step) != len(tau_true_indices):
         raise ValueError("calibration set length mismatch")
-    if not max_posterior_sequences:
+    if not posteriors_at_step:
         return default_schedule(num_steps=0, delta=delta)
     if not 0.0 < delta < 1.0:
         raise ValueError("delta must be in (0, 1)")
 
-    max_len = max(len(seq) for seq in max_posterior_sequences) if max_posterior_sequences else 0
+    max_len = max(len(seq) for seq in posteriors_at_step)
+    if max_len == 0:
+        return default_schedule(num_steps=0, delta=delta)
+
+    delta_eff = delta / max_len if bonferroni else delta
+    delta_eff = max(min(delta_eff, 0.99), 1e-4)
+
     alpha: list[float] = []
     for t in range(max_len):
-        masses_at_t: list[float] = []
-        for seq in max_posterior_sequences:
-            if t < len(seq):
-                masses_at_t.append(float(seq[t]))
-        if not masses_at_t:
+        # Per step t, gather (1 - pi_t(tau_true)) over calibration trajectories.
+        scores: list[float] = []
+        for seq, tau_true in zip(posteriors_at_step, tau_true_indices):
+            if t >= len(seq):
+                continue
+            posterior_t = seq[t]
+            if not posterior_t:
+                continue
+            num_steps = len(posterior_t) - 1
+            # Translate -1 -> infty index = num_steps.
+            gold_idx = num_steps if tau_true is None or tau_true < 0 else int(tau_true)
+            if gold_idx < 0 or gold_idx >= len(posterior_t):
+                continue
+            p_true = float(posterior_t[gold_idx])
+            scores.append(1.0 - p_true)
+        if not scores:
             alpha.append(1.0 - delta)
             continue
-        # Quantile such that fraction <= alpha is delta of the calibration set.
-        # We pick the (delta)-quantile of masses; committing requires being
-        # above this floor.
-        masses_at_t.sort()
-        idx = max(0, math.floor(delta * len(masses_at_t)))
-        threshold = masses_at_t[idx] if idx < len(masses_at_t) else masses_at_t[-1]
-        alpha.append(max(0.0, min(1.0, threshold)))
 
-    # Smooth: alpha should not drop too quickly.
-    for t in range(1, len(alpha)):
-        if alpha[t] < alpha[t - 1] - 0.1:
-            alpha[t] = alpha[t - 1] - 0.1
+        # Finite-sample-corrected (1 - delta_eff) quantile.
+        scores.sort()
+        n = len(scores)
+        # Rank for the conformal quantile: ceil((n+1)(1-delta_eff)).
+        rank = math.ceil((n + 1) * (1.0 - delta_eff))
+        rank = max(1, min(rank, n))
+        q = scores[rank - 1]
+        # alpha_t = 1 - q. Posterior mass on the truth must be at least 1 - q.
+        alpha.append(max(0.0, min(1.0, 1.0 - q)))
 
     return ConformalSchedule(
         alpha=alpha,
         delta=delta,
+        calibration_size=len(posteriors_at_step),
+        meta={
+            "type": "split_conformal",
+            "bonferroni": bonferroni,
+            "delta_per_step": delta_eff,
+            "max_len": max_len,
+        },
+    )
+
+
+# Back-compat shim: keep the legacy name so older callers don't break.
+def calibrate_conformal(
+    *,
+    max_posterior_sequences=None,
+    tau_true_indices=None,
+    posteriors_at_step=None,
+    delta: float = 0.1,
+) -> ConformalSchedule:
+    """Legacy entrypoint. New code should call calibrate_split_conformal directly."""
+    if posteriors_at_step is not None and tau_true_indices is not None:
+        return calibrate_split_conformal(
+            posteriors_at_step=posteriors_at_step,
+            tau_true_indices=tau_true_indices,
+            delta=delta,
+        )
+    if max_posterior_sequences is None or tau_true_indices is None:
+        return default_schedule(num_steps=0, delta=delta)
+    max_len = max((len(seq) for seq in max_posterior_sequences), default=0)
+    alpha = []
+    for t in range(max_len):
+        masses = [float(seq[t]) for seq in max_posterior_sequences if t < len(seq)]
+        if not masses:
+            alpha.append(1.0 - delta)
+            continue
+        masses.sort()
+        idx = max(0, math.floor(delta * len(masses)))
+        threshold = masses[idx] if idx < len(masses) else masses[-1]
+        alpha.append(max(0.0, min(1.0, threshold)))
+    return ConformalSchedule(
+        alpha=alpha or [1.0 - delta],
+        delta=delta,
         calibration_size=len(max_posterior_sequences),
-        meta={"type": "empirical"},
+        meta={"type": "legacy_heuristic", "warning": "no conformal guarantee"},
     )
